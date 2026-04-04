@@ -29,14 +29,19 @@ dev = [
 ]
 
 [project.scripts]
+# 入口点（需要设置 tool.uv.package = true）
 start = "app.main"
 dev = "app.main"
 test = "pytest"
 test-cov = "pytest --cov=app --cov-report=html"
 
 [tool.uv]
-# uv配置
-dev-dependencies = [
+# 启用包管理（修复警告2）
+package = true
+
+# 使用 dependency-groups 替代 tool.uv.dev-dependencies（修复警告1）
+[dependency-groups.dev]
+dependencies = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.10.0",
