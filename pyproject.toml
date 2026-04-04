@@ -29,7 +29,6 @@ dev = [
 ]
 
 [project.scripts]
-# 入口点（需要设置 tool.uv.package = true）
 start = "app.main"
 dev = "app.main"
 test = "pytest"
