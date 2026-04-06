@@ -1,0 +1,176 @@
+# LlamaIndex 入门指南
+
+## 什么是 LlamaIndex？
+
+LlamaIndex（formerly GPT Index）是一个强大的数据框架，专门为大型语言模型（LLM）应用设计。它帮助开发者将私有数据与 LLM 进行连接，实现知识增强。
+
+### 核心价值
+
+1. **数据连接**：轻松将各种数据源（PDF、Word、数据库、API等）与 LLM 连接
+2. **知识索引**：支持多种索引类型（向量索引、列表索引、树索引）
+3. **智能查询**：提供强大的查询引擎，支持问答、对话等场景
+4. **灵活定制**：从高级 API 到低级组件，可根据需求灵活选择
+
+### 主要功能
+
+- **文档加载器**：支持 PDF、Word、txt、Notion、Slack、数据库等
+- **索引构建**：向量存储、关键词索引、层次索引等
+- **查询引擎**：问答系统、聊天机器人、数据分析
+- **数据增强**：将外部知识融入 LLM 生成过程
+
+## 核心概念
+
+### 1. 文档加载器（Document Loaders）
+
+LlamaIndex 支持从多种数据源加载文档：
+
+```python
+from llama_index.core import SimpleDirectoryReader
+
+# 从目录加载所有文件
+documents = SimpleDirectoryReader("data").load_data()
+
+# 支持的数据源类型：
+# - 文件：PDF, Word, txt, markdown
+# - SaaS：Notion, Slack, Discord
+# - 数据库：PostgreSQL, MongoDB
+# - API：HTTP, REST
+```
+
+### 2. 索引（Indexes）
+
+索引是将文档转换为可查询格式的结构：
+
+```python
+from llama_index.core import VectorStoreIndex
+
+# 创建向量索引
+index = VectorStoreIndex.from_documents(documents)
+
+# 索引类型：
+# - VectorStoreIndex: 向量索引，适合语义搜索
+# - ListIndex: 列表索引，适合完整文档检索  
+# - TreeIndex: 树索引，适合层次化查询
+```
+
+### 3. 查询引擎（Query Engines）
+
+查询引擎是用户与数据交互的接口：
+
+```python
+# 创建问答引擎
+query_engine = index.as_query_engine()
+
+# 问答
+response = query_engine.query("什么是 LlamaIndex？")
+print(response)
+```
+
+### 4. 检索（Retrieval）
+
+检索是从索引中获取相关文档的过程：
+
+- **相似度检索**：基于向量相似度
+- **关键词检索**：基于关键词匹配
+- **混合检索**：结合多种策略
+
+## 为什么使用 LlamaIndex？
+
+### 解决 LLM 的痛点
+
+1. **知识截止问题**：LLM 知识有截止日期，无法回答最新问题
+2. **私有数据缺失**：LLM 不知道你的私人文档、笔记
+3. **幻觉问题**：LLM 可能产生不准确的"幻觉"答案
+
+### RAG 架构
+
+RAG（检索增强生成）是 LlamaIndex 的核心工作流程：
+
+```
+用户问题 → 检索 → 相关文档 → LLM 生成 → 最终答案
+```
+
+**RAG 的优势**：
+- 提供最新信息（检索实时文档）
+- 覆盖私有知识（个人笔记、企业文档）
+- 减少幻觉（基于真实文档生成）
+- 可追溯（可以查看引用来源）
+
+## 快速开始
+
+### 基础用法
+
+```python
+# 1. 加载文档
+from llama_index.core import SimpleDirectoryReader
+documents = SimpleDirectoryReader("data").load_data()
+
+# 2. 创建索引
+from llama_index.core import VectorStoreIndex
+index = VectorStoreIndex.from_documents(documents)
+
+# 3. 查询
+query_engine = index.as_query_engine()
+response = query_engine.query("你的问题")
+print(response)
+```
+
+### 进阶用法
+
+```python
+# 自定义 LLM
+from llama_index.llms.openai import OpenAI
+llm = OpenAI(model="gpt-4")
+query_engine = index.as_query_engine(llm=llm)
+
+# 自定义检索
+from llama_index.core.retrievers import VectorIndexRetriever
+retriever = VectorIndexRetriever(index, similarity_top_k=5)
+
+# 聊天历史
+from llama_index.core.memory import ChatMemoryBuffer
+memory = ChatMemoryBuffer(token_limit=1000)
+```
+
+## 应用场景
+
+### 1. 个人知识库
+
+将笔记、文章、文档变成可对话的知识库
+
+### 2. 企业内部搜索
+
+构建私有文档问答系统
+
+### 3. 产品文档助手
+
+帮助用户快速查找产品使用信息
+
+### 4. 代码库助手
+
+基于代码文档的问答系统
+
+### 5. 客服机器人
+
+基于产品文档的智能客服
+
+## 与 LangChain 的关系
+
+LlamaIndex 和 LangChain 是互补关系：
+
+- **LlamaIndex**：专注数据处理和索引，更专业的索引和检索
+- **LangChain**：提供完整的 LLM 应用框架，包括代理、工具链等
+
+两者可以结合使用，发挥各自优势。
+
+## 总结
+
+LlamaIndex 为构建 LLM 应用提供了强大而灵活的工具：
+
+1. 简化数据接入：支持多种数据源
+2. 高效索引：多种索引类型满足不同需求
+3. 智能查询：强大的问答和对话能力
+4. 灵活定制：从简单到复杂都可实现
+
+官方网站：https://www.llamaindex.ai
+文档：https://docs.llamaindex.ai

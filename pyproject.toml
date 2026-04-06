@@ -1,91 +1,16 @@
 [project]
 name = "llamaindex-tutorials"
 version = "0.1.0"
-description = "LlamaIndex入门项目：让大模型\"读懂\"你的私有数据"
-requires-python = ">=3.10"
-
-[dependencies]
-# LlamaIndex核心
-llama-index = "*"
-
-# DeepSeek LLM
-llama-index-llms-deepseek = "*"
-llama-index-embeddings-deepseek = "*"
-
-# 环境变量
-python-dotenv = "*"
-
-[project.optional-dependencies]
-dev = [
-    # 测试框架
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-mock>=3.10.0",
-
-    # 代码质量
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
+description = "LlamaIndex 入门教程 - 个人知识库问答"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain",
+    "langchain-community",
+    "langchain-text-splitters",
+    "faiss-cpu",
+    "ollama",
 ]
-
-[project.scripts]
-start = "app.main"
-dev = "app.main"
-test = "pytest"
-test-cov = "pytest --cov=app --cov-report=html"
 
 [tool.uv]
-# 启用包管理（修复警告2）
-package = true
-
-# 使用 dependency-groups 替代 tool.uv.dev-dependencies（修复警告1）
-[dependency-groups.dev]
-dependencies = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-mock>=3.10.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-]
-
-[tool.pytest.ini_options]
-minversion = "7.0"
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_functions = "test_*"
-addopts = "-v --tb=short"
-
-[tool.coverage.run]
-source = ["app"]
-omit = [
-    "tests/*",
-    "*/site-packages/*",
-    "*/__pycache__/*"
-]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:",
-    "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
-]
-
-[tool.black]
-line-length = 120
-target-version = ['py310']
-
-[tool.ruff]
-line-length = 120
-target-version = "py310"
-select = ["E", "F", "I", "N", "W", "UP"]
-ignore = []
-extend-ignore = []
-
-[tool.ruff.isort]
-known-first-party = ["llama_index", "app"]
+dev-dependencies = []

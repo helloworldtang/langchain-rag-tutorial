@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local vector index (generated at runtime)
+faiss_index/
