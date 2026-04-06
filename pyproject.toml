@@ -12,5 +12,5 @@ dependencies = [
     "ollama",
 ]
 
-[tool.uv]
-dev-dependencies = []
+[dependency-groups]
+dev = []

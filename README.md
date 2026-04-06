@@ -25,26 +25,34 @@
 git clone <your-repo-url>
 cd llamaindex-tutorials
 
-# 2. 创建虚拟环境
-uv venv
-source .venv/bin/activate
+# 2. 同步依赖（推荐使用 uv）
+uv sync
 
-# 3. 安装依赖
-uv pip install langchain langchain-community langchain-text-splitters faiss-cpu ollama
-
-# 4. 确保 Ollama 运行中
+# 3. 确保 Ollama 运行中
 ollama serve
 
-# 5. 下载所需模型（如果未安装）
+# 4. 下载所需模型（如果未安装）
 ollama pull deepseek-r1:1.5b
 ollama pull nomic-embed-text
 ```
 
+> **注意**：项目使用 `uv` 管理依赖，确保已安装 uv。如果未安装，请运行：`pip install uv`
+
 ## 🚀 运行
 
 ```bash
+# 方式 1：使用 uv run（推荐）
+uv run python main.py
+
+# 方式 2：激活虚拟环境后运行
+source .venv/bin/activate
 python main.py
+
+# 方式 3：直接使用虚拟环境的 Python
+.venv/bin/python main.py
 ```
+
+⚠️ **重要提示**：请使用 `uv run` 或激活虚拟环境后运行，否则可能遇到 `ModuleNotFoundError: No module named 'ollama'` 错误。
 
 首次运行会自动从 `./data` 构建向量索引并持久化到 `./faiss_index/`；后续运行直接加载索引，速度快很多。
 
