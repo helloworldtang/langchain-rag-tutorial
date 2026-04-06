@@ -1,13 +1,13 @@
-# LlamaIndex 入门教程 - 个人知识库问答
+# LangChain RAG 教程 - 个人知识库问答
 
-一个基于 **LangChain + Ollama** 构建的 RAG（检索增强生成）实战项目，帮助你快速入门 LlamaIndex 的核心概念和用法。
+一个基于 **LangChain + Ollama** 构建的 RAG（检索增强生成）实战项目，帮助你快速入门 RAG 系统的核心概念和用法。
 
 > 本项目展示 RAG 系统的完整实现：文档加载 → 向量索引 → 相似度检索 → LLM 生成答案
 
 ## 🎯 项目目标
 
 - 理解 RAG（检索增强生成）的工作原理
-- 掌握 LlamaIndex 的核心概念（Document、Node、Index、QueryEngine）
+- 掌握 LangChain 的核心概念（Document、Embeddings、VectorStore）
 - 跑通个人知识库问答系统
 - 了解向量索引、相似度检索等关键概念
 
@@ -60,17 +60,16 @@ python main.py
 
 `data/knowledge_base.txt` 包含以下主题：
 
-- LlamaIndex 简介与核心价值
-- 核心概念（Document、Node、Index、QueryEngine、Retriever）
+- RAG 系统简介与核心价值
+- LangChain 核心概念（Document、Embeddings、VectorStore、LLM）
 - RAG 原理与工作流程
-- 与 LangChain 的关系
-- 快速开始示例
+- 向量数据库与相似度检索
 - 应用场景与扩展方向
 
 ## 📁 项目结构
 
 ```
-llamaindex-tutorials/
+langchain-rag-tutorial/
 ├── README.md              # 本文件
 ├── main.py                # 主程序
 ├── pyproject.toml         # 依赖配置
@@ -109,8 +108,8 @@ llamaindex-tutorials/
 
 ## 📚 相关链接
 
-- [LlamaIndex 官网](https://www.llamaindex.ai)
-- [LlamaIndex 文档](https://docs.llamaindex.ai)
-- [LlamaIndex GitHub](https://github.com/run-llama/llama_index)
 - [LangChain 文档](https://python.langchain.com)
-- [Ollama](https://ollama.ai)
+- [LangChain GitHub](https://github.com/langchain-ai/langchain)
+- [Ollama 文档](https://ollama.ai/docs)
+- [FAISS 文档](https://faiss.ai)
+- [RAG 原理介绍](https://python.langchain.com/docs/tutorials/rag)

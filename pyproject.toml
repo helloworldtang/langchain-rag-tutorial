@@ -1,7 +1,7 @@
 [project]
-name = "llamaindex-tutorials"
+name = "langchain-rag-tutorial"
 version = "0.1.0"
-description = "LlamaIndex 入门教程 - 个人知识库问答"
+description = "LangChain RAG 教程 - 个人知识库问答"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

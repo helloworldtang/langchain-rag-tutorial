@@ -1,6 +1,6 @@
 """
 ======================================================
-LlamaIndex 入门示例：个人知识库问答
+LangChain RAG 示例：个人知识库问答
 ======================================================
 
 本项目演示如何使用 LangChain + Ollama 构建 RAG 系统
@@ -45,17 +45,22 @@ class OllamaChat:
         """调用 LLM 生成回答"""
         if isinstance(messages, list) and len(messages) > 0:
             # 如果是 ChatMessage 对象列表
-            if hasattr(messages[0], 'content'):
+            if hasattr(messages[0], "content"):
                 # 提取 content
-                content = messages[0].content if len(messages) == 1 else "\n".join([m.content for m in messages])
+                content = (
+                    messages[0].content
+                    if len(messages) == 1
+                    else "\n".join([m.content for m in messages])
+                )
             else:
-                content = messages[0] if isinstance(messages[0], str) else str(messages[0])
+                content = (
+                    messages[0] if isinstance(messages[0], str) else str(messages[0])
+                )
         else:
             content = str(messages)
-        
+
         response = ollama.chat(
-            model=self.model,
-            messages=[{"role": "user", "content": content}]
+            model=self.model, messages=[{"role": "user", "content": content}]
         )
         return response["message"]["content"]
 
@@ -92,24 +97,23 @@ def init_embedding():
 def load_documents():
     """加载知识库文档"""
     print("📚 加载知识库文档...")
-    
+
     with open("./data/knowledge_base.txt", "r", encoding="utf-8") as f:
         content = f.read()
-    
+
     # 使用 CharacterTextSplitter 分割
     text_splitter = CharacterTextSplitter(
-        separator="\n\n",
-        chunk_size=500,
-        chunk_overlap=50
+        separator="\n\n", chunk_size=500, chunk_overlap=50
     )
     chunks = text_splitter.split_text(content)
-    
+
     # 转换为 LangChain Document
     documents = [
         LCDocument(page_content=chunk, metadata={"source": "knowledge_base.txt"})
-        for chunk in chunks if chunk.strip()
+        for chunk in chunks
+        if chunk.strip()
     ]
-    
+
     print(f"   已加载 {len(documents)} 个文档块")
     return documents
 
@@ -119,21 +123,18 @@ def build_index(documents, embed_model):
     构建或加载索引
     """
     # 检查是否存在持久化索引
-    if os.path.exists(INDEX_DIR) and os.path.exists(os.path.join(INDEX_DIR, "index.faiss")):
+    if os.path.exists(INDEX_DIR) and os.path.exists(
+        os.path.join(INDEX_DIR, "index.faiss")
+    ):
         print("📦 检测到已有索引，加载中...")
         vectorstore = FAISS.load_local(
-            INDEX_DIR,
-            embed_model,
-            allow_dangerous_deserialization=True
+            INDEX_DIR, embed_model, allow_dangerous_deserialization=True
         )
         return vectorstore
 
     # 构建 FAISS 向量索引
     print("🔍 构建向量索引...")
-    vectorstore = FAISS.from_documents(
-        documents=documents,
-        embedding=embed_model
-    )
+    vectorstore = FAISS.from_documents(documents=documents, embedding=embed_model)
 
     # 保存到本地
     print("💾 保存索引到本地...")
@@ -149,10 +150,10 @@ def answer_question(question: str, vectorstore, llm) -> None:
     """
     # 检索相关文档
     docs = vectorstore.similarity_search(question, k=3)
-    
+
     # 构建上下文
     context = "\n\n".join([doc.page_content for doc in docs])
-    
+
     # 构建 Prompt
     prompt = f"""基于以下上下文回答问题。如果无法从上下文找到答案，请如实说明。
 
@@ -162,7 +163,7 @@ def answer_question(question: str, vectorstore, llm) -> None:
 问题: {question}
 
 回答:"""
-    
+
     # 调用 LLM
     print(f"\n❓ 问题: {question}")
     response = llm.invoke(prompt)
