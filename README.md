@@ -15,7 +15,9 @@
 
 - **LangChain**：LLM 应用框架
 - **Ollama**：本地 LLM 运行（deepseek-r1:1.5b）
-- **FAISS**：向量数据库
+- **FAISS**：向量数据库（稠密检索）
+- **BM25（rank-bm25）**：倒排索引（稀疏检索）
+- **RRF 融合算法**：多路检索结果合并
 - **Python 3.11+**
 
 ## 📦 安装
@@ -89,13 +91,16 @@ langchain-rag-tutorial/
        ↓
 2. 文本分割 (CharacterTextSplitter)
        ↓
-3. 向量嵌入 (OllamaEmbeddings)
+   ┌───────────────────────────────┐
+   │  3a. 向量嵌入 → FAISS 稠密索引  │
+   │  3b. BM25 倒排索引（稀疏）     │
+   └───────────────────────────────┘
        ↓
-4. 向量存储 (FAISS.from_documents)
+4. 混合检索 (hybrid_search)
+   → FAISS Top-5 + BM25 Top-5
+   → RRF 倒数排名融合
        ↓
-5. 相似度检索 (similarity_search)
-       ↓
-6. LLM 生成答案 (OllamaChat.invoke)
+5. 拼 Prompt + LLM 生成答案 (OllamaChat.invoke)
 ```
 
 ## 🚀 扩展方向

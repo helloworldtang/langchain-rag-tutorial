@@ -10,7 +10,10 @@ dependencies = [
     "langchain-text-splitters",
     "faiss-cpu",
     "ollama",
+    "rank-bm25",
 ]
 
 [dependency-groups]
-dev = []
+dev = [
+    "pytest>=9.0.2",
+]
