@@ -1,6 +1,6 @@
 # LangChain RAG 教程 - 个人知识库问答
 
-一个基于 **LangChain + Ollama** 构建的 RAG（检索增强生成）实战项目，帮助你快速入门 RAG 系统的核心概念和用法。
+一个基于 **LangChain** 构建的 RAG（检索增强生成）实战项目，支持**本地 Ollama**与**在线 DeepSeek**两种 LLM，帮助你快速入门 RAG 系统的核心概念和用法。
 
 > 本项目展示 RAG 系统的完整实现：文档加载 → 向量索引 → 相似度检索 → LLM 生成答案
 
@@ -15,10 +15,12 @@
 
 - **LangChain**：LLM 应用框架（核心组件 + LCEL）
 - **langchain-ollama**：Ollama 官方集成（ChatOllama / OllamaEmbeddings）
-- **Ollama**：本地 LLM 运行（deepseek-r1:1.5b、nomic-embed-text）
+- **langchain-deepseek**：DeepSeek 官方集成（ChatDeepSeek，可选，在线 LLM）
+- **Ollama**：本地运行 LLM（deepseek-r1:1.5b）与 Embedding（nomic-embed-text）
 - **FAISS**：向量数据库（稠密检索）
 - **BM25（rank-bm25）**：倒排索引（稀疏检索）
 - **jieba**：中文分词（让 BM25 在中文语料上真正生效）
+- **python-dotenv**：从 .env 加载环境变量（安全管理 API Key）
 - **RRF 融合算法**：多路检索结果合并
 - **Python 3.11+**
 
@@ -38,6 +40,10 @@ ollama serve
 # 4. 下载所需模型（如果未安装）
 ollama pull deepseek-r1:1.5b
 ollama pull nomic-embed-text
+
+# 5.（可选）使用在线 DeepSeek 时，复制环境变量模板并填入 API Key
+cp .env.example .env
+#    然后编辑 .env，设置 DEEPSEEK_API_KEY 和 LLM_PROVIDER=deepseek
 ```
 
 > **注意**：项目使用 `uv` 管理依赖，确保已安装 uv。如果未安装，请运行：`pip install uv`
@@ -60,6 +66,44 @@ python main.py
 
 首次运行会自动从 `./data` 构建向量索引并持久化到 `./faiss_index/`；后续运行直接加载索引，速度快很多。
 
+## 🌐 使用 DeepSeek 在线模型（可选）
+
+本项目默认使用本地 Ollama（零成本、离线）。你也可以切换到**在线 DeepSeek**——价格极低（`deepseek-chat` 约 $0.14/百万输入 token）、质量更高（DeepSeek-V3.1），适合没有本地 GPU 或想要更好生成质量的场景。
+
+### 本地 vs 在线
+
+| 维度 | 本地 Ollama | 在线 DeepSeek |
+|---|---|---|
+| 成本 | 免费 | 极便宜（约 $0.14/1M 输入 token） |
+| 质量 | r1:1.5b 较弱 | V3.1，接近 GPT-4 水平 |
+| 硬件 | 需本地内存/显存 | 无要求 |
+| 网络 | 离线 | 需联网 |
+| 隐私 | 数据不出本机 | 数据上云 |
+
+### 配置步骤
+
+1. **获取 API Key**：访问 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建并充值（[定价说明](https://api-docs.deepseek.com/quick_start/pricing)）。
+2. **复制配置模板**：`cp .env.example .env`
+3. **编辑 `.env`**，填入：
+   ```env
+   DEEPSEEK_API_KEY=sk-你的真实key
+   LLM_PROVIDER=deepseek
+   ```
+4. **运行**（命令不变）：
+   ```bash
+   uv run python main.py
+   ```
+
+### 💡 学习点：在线 LLM + 本地 Embedding 的混合架构
+
+DeepSeek **不提供 Embedding API**，因此本项目在在线模式下依然用本地 Ollama（`nomic-embed-text`）做嵌入，只有"生成答案"这一步走 DeepSeek。这演示了一个重要模式：
+
+- **LLM 与 Embedding 解耦**：两者各取所长——LLM 用在线的高质量模型，Embedding 用本地零成本模型。
+- **索引可复用**：因为 Embedding 模型不变，切换 LLM provider 时 `faiss_index/` 无需重建，可平滑迁移。
+- **代码无感知**：`ChatOllama` 与 `ChatDeepSeek` 都实现 LangChain 的 `ChatModel` 接口，下游 `llm.invoke(prompt).content` 完全一致。
+
+> 想看推理过程？在 `.env` 设置 `DEEPSEEK_MODEL=deepseek-reasoner`，答案前会打印模型的 `reasoning_content`（思考链）。
+
 ## 📖 知识库内容
 
 `data/knowledge_base.txt` 包含以下主题：
@@ -78,6 +122,7 @@ langchain-rag-tutorial/
 ├── README.md              # 本文件
 ├── main.py                # 主程序
 ├── pyproject.toml         # 依赖配置
+├── .env.example           # 环境变量模板（复制为 .env 使用，.env 已被 gitignore）
 ├── data/
 │   └── knowledge_base.txt # 知识库文件
 ├── faiss_index/           # 持久化的向量索引（运行时生成）
@@ -120,4 +165,6 @@ langchain-rag-tutorial/
 - [LangChain GitHub](https://github.com/langchain-ai/langchain)
 - [Ollama 文档](https://ollama.ai/docs)
 - [FAISS 文档](https://faiss.ai)
+- [DeepSeek API 文档](https://api-docs.deepseek.com)
+- [DeepSeek 定价](https://api-docs.deepseek.com/quick_start/pricing)
 - [RAG 原理介绍](https://python.langchain.com/docs/tutorials/rag)

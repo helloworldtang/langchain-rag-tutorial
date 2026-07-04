@@ -198,5 +198,79 @@ class TestFunctionality:
         assert score_a > score_b, "A 的 RRF 分数应大于 B"
 
 
+class TestProviderSwitch:
+    """测试 LLM provider 切换逻辑（全程离线，不联网、不真实调用 API）"""
+
+    def test_init_llm_ollama_returns_chatollama(self):
+        """ollama provider 返回 ChatOllama"""
+        import main
+        from langchain_ollama import ChatOllama
+        llm = main.init_llm("ollama")
+        assert isinstance(llm, ChatOllama)
+
+    def test_init_llm_default_is_ollama(self, monkeypatch):
+        """不显式传 provider 时默认走 ollama（不破坏现有行为）"""
+        import main
+        from langchain_ollama import ChatOllama
+        monkeypatch.setenv("LLM_PROVIDER", "ollama")
+        llm = main.init_llm()
+        assert isinstance(llm, ChatOllama)
+
+    def test_init_llm_deepseek_missing_key_raises(self, monkeypatch):
+        """切到 deepseek 但未配置 key → 友好报错（不真实联网）"""
+        import main
+        monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
+            main.init_llm("deepseek")
+
+    def test_init_llm_deepseek_unavailable_raises(self, monkeypatch):
+        """未安装 langchain-deepseek → 友好报错"""
+        import main
+        monkeypatch.setattr(main, "DEEPSEEK_AVAILABLE", False)
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-fake")  # 有 key 但库未装
+        with pytest.raises(RuntimeError, match="langchain-deepseek"):
+            main.init_llm("deepseek")
+
+    def test_init_llm_deepseek_returns_chatdeepseek(self, monkeypatch):
+        """deepseek + 有 key + 库可用 → 返回 ChatDeepSeek 实例（用假类避免联网）"""
+        import main
+
+        class _FakeChatDeepSeek:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        monkeypatch.setattr(main, "DEEPSEEK_AVAILABLE", True)
+        monkeypatch.setattr(main, "ChatDeepSeek", _FakeChatDeepSeek)
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-fake")
+        llm = main.init_llm("deepseek")
+        assert isinstance(llm, _FakeChatDeepSeek)
+        assert llm.kwargs["model"] == main.DEEPSEEK_MODEL
+        assert llm.kwargs["api_key"] == "sk-fake"
+        assert llm.kwargs["temperature"] == 0
+
+    def test_init_embedding_always_ollama(self):
+        """两种 provider 下 embedding 都用本地 Ollama（关键学习点）"""
+        import main
+        from langchain_ollama import OllamaEmbeddings
+        emb = main.init_embedding()
+        assert isinstance(emb, OllamaEmbeddings)
+
+    def test_env_example_exists_and_is_template(self):
+        """.env.example 存在且是模板（不含真实 key）"""
+        assert os.path.exists(".env.example")
+        with open(".env.example", encoding="utf-8") as f:
+            content = f.read()
+        assert "DEEPSEEK_API_KEY=sk-your-key-here" in content
+        assert "LLM_PROVIDER=" in content
+
+    def test_main_loads_dotenv(self):
+        """main.py 必须 import 并调用 load_dotenv"""
+        with open("main.py", encoding="utf-8") as f:
+            content = f.read()
+        assert "from dotenv import load_dotenv" in content
+        assert "load_dotenv(" in content
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

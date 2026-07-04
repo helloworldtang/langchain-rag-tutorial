@@ -3,24 +3,24 @@
 LangChain RAG 示例：个人知识库问答（BM25 + FAISS 混合检索）
 ======================================================
 
-本项目演示如何使用 LangChain + Ollama 构建 RAG 系统，
+本项目演示如何使用 LangChain 构建 RAG 系统，
 并实现 BM25 + FAISS 混合检索 + RRF 融合，用于回答基于个人知识库的问题。
 
 技术点：
 - LangChain 核心组件：Document / TextSplitters / Embeddings / VectorStore
-- 官方 langchain-ollama 集成：ChatOllama（LLM）、OllamaEmbeddings（嵌入）
+- LLM provider 切换：本地 Ollama（默认）或 在线 DeepSeek（langchain-deepseek）
+- 在线 LLM（DeepSeek）+ 本地 Embedding（Ollama）的混合架构
 - 稠密检索（FAISS）+ 稀疏检索（BM25）+ RRF 倒数排名融合
 
 依赖：
 - langchain / langchain-community / langchain-text-splitters
-- langchain-ollama（官方 Ollama 集成）
-- faiss-cpu
-- rank-bm25
-- jieba（中文分词，可选）
+- langchain-ollama（Ollama 官方 LLM/Embedding 集成）
+- langchain-deepseek（DeepSeek 官方 LLM 集成，可选）
+- faiss-cpu / rank-bm25 / jieba / python-dotenv
 
 使用方法：
-1. 确保 Ollama 服务运行中（ollama serve）
-2. 已下载模型：deepseek-r1:1.5b、nomic-embed-text
+1. （默认）本地 Ollama：确保 ollama serve 运行，已下载 deepseek-r1:1.5b、nomic-embed-text
+2. （可选）在线 DeepSeek：在 .env 设置 DEEPSEEK_API_KEY 和 LLM_PROVIDER=deepseek
 3. 运行：python main.py
 
 ======================================================
@@ -29,12 +29,17 @@ LangChain RAG 示例：个人知识库问答（BM25 + FAISS 混合检索）
 import os
 import pickle
 import re
+from pathlib import Path
 from typing import List
 
+from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document as LCDocument
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_text_splitters import CharacterTextSplitter
+
+# 尽早加载 .env（必须先于下方使用 os.getenv 的配置区）
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 try:
     from rank_bm25 import BM25Okapi
@@ -50,9 +55,24 @@ except ImportError:
     JIEBA_AVAILABLE = False
     print("⚠️ jieba 未安装，中文将按字符切分（效果较差）。建议运行: uv add jieba")
 
+try:
+    from langchain_deepseek import ChatDeepSeek
+    DEEPSEEK_AVAILABLE = True
+except ImportError:
+    ChatDeepSeek = None  # 赋 None 兜底，避免未安装时引用未定义名
+    DEEPSEEK_AVAILABLE = False
+    print("⚠️ langchain-deepseek 未安装，DeepSeek 在线模型不可用。请运行: uv add langchain-deepseek")
+
 
 # ============== 配置 ==============
-LLM_MODEL = "deepseek-r1:1.5b"
+# LLM provider：ollama（本地，默认）| deepseek（在线，需 DEEPSEEK_API_KEY）
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
+# 本地 Ollama 模型
+OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "deepseek-r1:1.5b")
+# 在线 DeepSeek 模型：deepseek-chat（V3.1，通用）| deepseek-reasoner（推理型，返回 reasoning_content）
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+
+# Embedding：两种 provider 下都用本地 Ollama（DeepSeek 不提供 Embedding API）
 EMBED_MODEL = "nomic-embed-text"
 INDEX_DIR = "./faiss_index"
 BM25_PKL = "./faiss_index/bm25_index.pkl"
@@ -85,14 +105,47 @@ def tokenize(text: str) -> List[str]:
 
 # ============== 初始化 ==============
 
-def init_llm():
-    """初始化 LLM（通过官方 langchain-ollama 集成）"""
-    print("🔧 初始化 Ollama LLM...")
-    return ChatOllama(model=LLM_MODEL)
+def init_llm(provider: str | None = None):
+    """
+    初始化 LLM（返回统一的 LangChain ChatModel，下游代码无感知具体实现）。
+
+    - ollama（默认）：本地 ChatOllama，零成本、离线
+    - deepseek：在线 ChatDeepSeek，质量高、便宜，需 DEEPSEEK_API_KEY
+
+    注意：embedding 在两种 provider 下都用本地 Ollama（见 init_embedding），
+    因为 DeepSeek 不提供 Embedding API——这正是"在线 LLM + 本地 Embedding"
+    混合架构的典型做法：LLM 用在线的高质量模型，Embedding 用本地零成本模型。
+    """
+    # 实时读取环境变量作为默认值（便于测试用 monkeypatch 切换，无需重启进程）
+    provider = (provider or os.getenv("LLM_PROVIDER", "ollama")).lower()
+    if provider == "deepseek":
+        if not DEEPSEEK_AVAILABLE:
+            raise RuntimeError(
+                "未安装 langchain-deepseek，无法使用 DeepSeek。请运行: uv add langchain-deepseek"
+            )
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "未配置 DEEPSEEK_API_KEY。请复制 .env.example 为 .env 并填入 API Key"
+                "（获取地址：https://platform.deepseek.com/api_keys）"
+            )
+        print(f"🔧 初始化 DeepSeek LLM (model={DEEPSEEK_MODEL})...")
+        # temperature=0 让 RAG 答案稳定可复现
+        return ChatDeepSeek(model=DEEPSEEK_MODEL, api_key=api_key, temperature=0)
+
+    # 默认 ollama
+    print(f"🔧 初始化 Ollama LLM (model={OLLAMA_LLM_MODEL})...")
+    return ChatOllama(model=OLLAMA_LLM_MODEL, temperature=0)
 
 
 def init_embedding():
-    """初始化 Embedding 模型（通过官方 langchain-ollama 集成）"""
+    """
+    初始化 Embedding 模型（本地 Ollama）。
+
+    无论 LLM provider 是 ollama 还是 deepseek，embedding 都用本地 Ollama：
+    - DeepSeek 不提供 Embedding API
+    - 本地 embedding 零成本，向量索引可与在线 LLM 解耦复用（切换 LLM 无需重建索引）
+    """
     print("🔧 初始化 Ollama Embedding...")
     return OllamaEmbeddings(model=EMBED_MODEL)
 
@@ -277,8 +330,9 @@ def hybrid_search(vectorstore, bm25, doc_texts, documents, query: str) -> List[L
 
 def clean_response(text: str) -> str:
     """
-    清理 deepseek-r1 的输出：去掉 <think>...</think> 推理过程，只保留正式回答。
-    若没有 think 标签则原样返回。
+    清理本地 deepseek-r1 的输出：去掉 <think>...</think> 推理过程，只保留正式回答。
+    在线 DeepSeek（deepseek-chat / deepseek-reasoner）的 .content 本身就是干净答案，
+    此函数对在线模型是无害的 no-op（匹配不到 <think> 时原样返回）。
     """
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     return cleaned or text
@@ -310,10 +364,14 @@ def answer_question(question: str, vectorstore, bm25, doc_texts, documents, llm)
         preview = doc.page_content[:60].replace("\n", " ")
         print(f"   [{i}] {preview}...")
 
-    # ChatOllama.invoke 返回 AIMessage，取 .content 得到字符串
-    response = llm.invoke(prompt).content
-    response = clean_response(response)
-    print(f"\n✅ 答案:\n{response}")
+    # LLM.invoke 返回 AIMessage（本地 ChatOllama 与在线 ChatDeepSeek 均适用），取 .content 得到字符串
+    response = llm.invoke(prompt)
+    # 在线 deepseek-reasoner 会把推理放进 additional_kwargs["reasoning_content"]，可选展示
+    reasoning = response.additional_kwargs.get("reasoning_content") if response.additional_kwargs else None
+    if reasoning:
+        print(f"🧠 (推理过程) {reasoning[:200]}...")
+    answer = clean_response(response.content)
+    print(f"\n✅ 答案:\n{answer}")
 
     if docs:
         print("📄 参考来源：")
@@ -345,7 +403,7 @@ def main():
     ]
 
     print("\n" + "=" * 55)
-    print("💬 开始混合检索问答测试（FAISS + BM25 + RRF）")
+    print(f"💬 开始混合检索问答测试（provider={LLM_PROVIDER}）")
     print("=" * 55)
 
     for q in questions:

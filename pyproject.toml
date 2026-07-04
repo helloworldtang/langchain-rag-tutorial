@@ -5,13 +5,15 @@ description = "LangChain RAG 教程 - 个人知识库问答"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "faiss-cpu",
+    "jieba",
     "langchain",
     "langchain-community",
+    "langchain-deepseek",
     "langchain-ollama",
     "langchain-text-splitters",
-    "faiss-cpu",
+    "python-dotenv",
     "rank-bm25",
-    "jieba",
 ]
 
 [dependency-groups]
