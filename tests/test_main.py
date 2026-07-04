@@ -1,6 +1,6 @@
 """
 ======================================================
-单元测试 - LangChain RAG 入门项目（含混合检索）
+单元测试 - LangChain RAG 项目（含混合检索）
 ======================================================
 """
 
@@ -34,22 +34,23 @@ class TestProjectStructure:
 
 
 class TestKnowledgeBase:
-    """测试知识库内容"""
+    """测试知识库内容（LangChain RAG 主题）"""
 
-    def test_contains_llamaindex_intro(self):
+    def test_contains_langchain_intro(self):
         with open("data/knowledge_base.txt", "r", encoding="utf-8") as f:
             content = f.read()
-        assert "LlamaIndex" in content
+        assert "LangChain" in content, "知识库缺少 LangChain 介绍"
 
     def test_contains_rag_intro(self):
         with open("data/knowledge_base.txt", "r", encoding="utf-8") as f:
             content = f.read()
-        assert "RAG" in content
+        assert "RAG" in content, "知识库缺少 RAG 介绍"
 
     def test_contains_concepts(self):
+        """知识库应覆盖 LangChain 核心组件与混合检索概念"""
         with open("data/knowledge_base.txt", "r", encoding="utf-8") as f:
             content = f.read()
-        required_keywords = ["文档加载器", "索引", "查询引擎", "检索"]
+        required_keywords = ["Document", "Embeddings", "VectorStore", "混合检索", "RRF"]
         for keyword in required_keywords:
             assert keyword in content, f"知识库缺少: {keyword}"
 
@@ -57,9 +58,10 @@ class TestKnowledgeBase:
 class TestMainCode:
     """测试主程序代码"""
 
-    def test_import_ollama(self):
-        import ollama
-        assert ollama is not None
+    def test_import_langchain_ollama(self):
+        from langchain_ollama import ChatOllama, OllamaEmbeddings
+        assert ChatOllama is not None
+        assert OllamaEmbeddings is not None
 
     def test_import_faiss(self):
         from langchain_community.vectorstores import FAISS
@@ -85,14 +87,19 @@ class TestMainCode:
             content = f.read()
         assert "rank-bm25" in content, "pyproject.toml 缺少 rank-bm25 依赖"
 
-    def test_rrf_function_exists(self):
-        """测试 RRF 融合函数存在"""
+    def test_key_functions_exist(self):
+        """测试核心函数存在"""
         import main
-        assert hasattr(main, "reciprocal_rank_fusion"), "缺少 reciprocal_rank_fusion 函数"
-        assert hasattr(main, "hybrid_search"), "缺少 hybrid_search 函数"
-        assert hasattr(main, "dense_search"), "缺少 dense_search 函数"
-        assert hasattr(main, "sparse_search"), "缺少 sparse_search 函数"
-        assert hasattr(main, "build_bm25_index"), "缺少 build_bm25_index 函数"
+        for fn in [
+            "reciprocal_rank_fusion",
+            "hybrid_search",
+            "dense_search",
+            "sparse_search",
+            "build_bm25_index",
+            "tokenize",
+            "clean_response",
+        ]:
+            assert hasattr(main, fn), f"缺少 {fn} 函数"
 
 
 class TestFunctionality:
@@ -119,6 +126,31 @@ class TestFunctionality:
         doc = Document(page_content="测试内容", metadata={"source": "test.txt"})
         assert doc.page_content == "测试内容"
         assert doc.metadata["source"] == "test.txt"
+
+    def test_tokenize_chinese(self):
+        """中文必须被分词，不能整段当成一个 token（否则 BM25 失效）"""
+        import main
+        tokens = main.tokenize("什么是 RAG 检索增强生成")
+        assert isinstance(tokens, list)
+        assert len(tokens) > 1, "中文未被切分，BM25 在中文上会失效"
+        # token 应已小写化、无空白
+        assert all(isinstance(t, str) for t in tokens)
+        assert all(t == t.strip().lower() and t for t in tokens)
+
+    def test_tokenize_english(self):
+        """英文按词切分"""
+        import main
+        tokens = main.tokenize("BM25 sparse retrieval")
+        assert "bm25" in tokens
+        assert "retrieval" in tokens
+
+    def test_clean_response_strips_think(self):
+        """清理 deepseek-r1 的 <think> 推理过程"""
+        import main
+        out = main.clean_response("<think>这是一段推理</think>正式回答")
+        assert out == "正式回答"
+        # 无 think 标签时原样返回
+        assert main.clean_response("普通回答") == "普通回答"
 
     def test_rrf_fusion(self):
         """测试 RRF 融合算法"""

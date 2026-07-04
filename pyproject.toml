@@ -7,10 +7,11 @@ requires-python = ">=3.11"
 dependencies = [
     "langchain",
     "langchain-community",
+    "langchain-ollama",
     "langchain-text-splitters",
     "faiss-cpu",
-    "ollama",
     "rank-bm25",
+    "jieba",
 ]
 
 [dependency-groups]

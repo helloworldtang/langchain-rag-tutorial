@@ -1,176 +1,93 @@
-# LlamaIndex 入门指南
+# LangChain RAG 实战指南
 
-## 什么是 LlamaIndex？
+## 什么是 RAG（检索增强生成）
 
-LlamaIndex（formerly GPT Index）是一个强大的数据框架，专门为大型语言模型（LLM）应用设计。它帮助开发者将私有数据与 LLM 进行连接，实现知识增强。
+RAG 是 Retrieval-Augmented Generation 的缩写，中文叫"检索增强生成"。它是一种把"外部知识检索"和"大语言模型生成"结合起来的架构：先从一个知识库里检索出与用户问题最相关的文档片段，再把这些片段连同问题一起喂给大模型，让模型基于检索到的内容生成答案。
 
-### 核心价值
+RAG 的标准工作流程是：用户提问 → 检索相关文档 → 把文档拼进提示词 → 大模型生成答案。本项目的实现流程为：加载文档 → 文本分割 → 向量嵌入与索引 → 相似度检索 → 拼接提示词 → LLM 生成答案。
 
-1. **数据连接**：轻松将各种数据源（PDF、Word、数据库、API等）与 LLM 连接
-2. **知识索引**：支持多种索引类型（向量索引、列表索引、树索引）
-3. **智能查询**：提供强大的查询引擎，支持问答、对话等场景
-4. **灵活定制**：从高级 API 到低级组件，可根据需求灵活选择
+### RAG 解决了 LLM 的三大痛点
 
-### 主要功能
+1. **知识截止问题**：大模型的知识有训练截止日期，无法回答最新发生的事情。RAG 通过检索实时文档，可以让模型回答最新的问题。
+2. **私有数据缺失**：大模型不知道你的个人笔记、企业内部文档。RAG 把这些私有数据接入模型，实现定制化问答。
+3. **幻觉问题**：大模型可能会一本正经地编造不存在的答案。RAG 让模型基于真实检索到的文档生成，并能给出引用来源，减少幻觉、答案可追溯。
 
-- **文档加载器**：支持 PDF、Word、txt、Notion、Slack、数据库等
-- **索引构建**：向量存储、关键词索引、层次索引等
-- **查询引擎**：问答系统、聊天机器人、数据分析
-- **数据增强**：将外部知识融入 LLM 生成过程
+## LangChain 是什么
 
-## 核心概念
+LangChain 是一个用于构建大语言模型（LLM）应用的开源框架，核心理念是"通过可组合性（composability）构建 LLM 应用"。它把 LLM 应用拆成一组可拼装的标准组件，开发者像搭积木一样组装出文档问答、聊天机器人、智能代理等应用。本项目使用 LangChain 构建一个完整的 RAG 问答系统。
 
-### 1. 文档加载器（Document Loaders）
+LangChain 采用分包架构：`langchain-core` 提供核心抽象（Document、Runnable 等基础接口），`langchain` 提供链与组合语法（LCEL），`langchain-community` 汇集社区集成，各类第三方集成则拆成独立的轻量包——例如本项目用到的 `langchain-ollama`（Ollama 的 LLM 与 Embedding 集成）和 `langchain-text-splitters`（文本分割）。这种设计让你只安装真正用到的部分，依赖更轻量。
 
-LlamaIndex 支持从多种数据源加载文档：
+## LangChain 的核心组件
 
-```python
-from llama_index.core import SimpleDirectoryReader
+### 1. Document（文档对象）
 
-# 从目录加载所有文件
-documents = SimpleDirectoryReader("data").load_data()
+Document 是 LangChain 中表示一段文本的标准对象，包含两个字段：`page_content`（文本内容）和 `metadata`（元数据字典，如来源、页码等）。所有文档加载、分割、检索的流转都以 Document 为基本单位。
 
-# 支持的数据源类型：
-# - 文件：PDF, Word, txt, markdown
-# - SaaS：Notion, Slack, Discord
-# - 数据库：PostgreSQL, MongoDB
-# - API：HTTP, REST
-```
+### 2. Text Splitters（文本分割器）
 
-### 2. 索引（Indexes）
+大模型的上下文窗口有限，整篇长文档无法直接用于检索。Text Splitters 把长文档切分成一个个较小的语义块（chunk）。本项目使用 `CharacterTextSplitter`，按分隔符（如空行 `\n\n`）切分，并通过 `chunk_size` 控制每块最大长度、`chunk_overlap` 控制相邻块之间的重叠（避免把完整句子从中间切断）。
 
-索引是将文档转换为可查询格式的结构：
+### 3. Embeddings（嵌入模型）
 
-```python
-from llama_index.core import VectorStoreIndex
+Embeddings 负责把文本转换成高维向量（vector），让语义相近的文本在向量空间中距离也接近。LangChain 定义了统一的 `Embeddings` 接口，包含两个方法：`embed_query(text)` 把查询转成向量，`embed_documents(texts)` 把一批文档转成向量。本项目用 Ollama 提供的 `nomic-embed-text` 模型生成嵌入。
 
-# 创建向量索引
-index = VectorStoreIndex.from_documents(documents)
+### 4. VectorStore（向量数据库）
 
-# 索引类型：
-# - VectorStoreIndex: 向量索引，适合语义搜索
-# - ListIndex: 列表索引，适合完整文档检索  
-# - TreeIndex: 树索引，适合层次化查询
-```
+VectorStore 用来存储文档向量并提供相似度检索能力。LangChain 支持多种向量库，如 FAISS、Chroma、Milvus、Pinecone 等。本项目使用 FAISS（faiss-cpu），它是一个高效的稠密向量检索库，支持本地持久化：把索引保存到磁盘后，下次启动直接加载，避免重复计算嵌入。
 
-### 3. 查询引擎（Query Engines）
+### 5. LLM（大语言模型）
 
-查询引擎是用户与数据交互的接口：
+LangChain 用 `ChatModel` 接口统一封装各类大模型，调用 `.invoke()` 方法即可得到回复。本项目通过 `langchain-ollama` 集成包使用 `ChatOllama`，在本地通过 Ollama 运行 `deepseek-r1:1.5b` 模型，无需联网、无需 API Key。
 
-```python
-# 创建问答引擎
-query_engine = index.as_query_engine()
+### 6. Retriever（检索器）
 
-# 问答
-response = query_engine.query("什么是 LlamaIndex？")
-print(response)
-```
+Retriever 是 LangChain 中"检索"的抽象接口，输入查询、返回相关 Document。VectorStore 可以通过 `.as_retriever()` 转成 Retriever，再与 LLM 组合成链。本项目为了演示混合检索细节，直接调用 VectorStore 的 `similarity_search` 方法，而非走 Retriever 抽象。
 
-### 4. 检索（Retrieval）
+## 相似度检索：稠密检索（FAISS）
 
-检索是从索引中获取相关文档的过程：
+稠密检索（dense retrieval）基于向量相似度工作：把查询和文档都转成稠密向量，然后计算向量距离（如余弦相似度、欧氏距离），距离越近代表语义越相关。本项目用 FAISS 做稠密检索，调用 `similarity_search_with_score` 同时拿到文档和相似度分数。
 
-- **相似度检索**：基于向量相似度
-- **关键词检索**：基于关键词匹配
-- **混合检索**：结合多种策略
+稠密检索的优势是"懂语义"：查询里写"汽车"，它能检索出写"轿车""小轿车"的文档，即使字面完全不同。它擅长理解同义词、近义表达和整体语义关联。
 
-## 为什么使用 LlamaIndex？
+## 关键词检索：稀疏检索（BM25）
 
-### 解决 LLM 的痛点
+稀疏检索（sparse retrieval）基于词项匹配工作，代表算法是 BM25。BM25 本质是一个改进的 TF-IDF：它对文档建立倒排索引，根据查询词在文档中出现的频率（TF）、词的稀有程度（IDF）以及文档长度归一化，给每个文档打分。本项目用 `rank-bm25` 库的 `BM25Okapi` 实现稀疏检索。
 
-1. **知识截止问题**：LLM 知识有截止日期，无法回答最新问题
-2. **私有数据缺失**：LLM 不知道你的私人文档、笔记
-3. **幻觉问题**：LLM 可能产生不准确的"幻觉"答案
+稀疏检索的优势是"精确匹配"：当查询包含专有名词、人名、产品型号、代码标识符等精确关键词时，BM25 往往比向量检索更准。需要注意的是，BM25 依赖分词，中文需要先用 jieba 等工具分词（英文按空格切分即可），否则检索效果会明显下降。
 
-### RAG 架构
+## 混合检索与 RRF 融合（本项目特色）
 
-RAG（检索增强生成）是 LlamaIndex 的核心工作流程：
+稠密检索和稀疏检索各有长短：FAISS 懂语义但可能漏掉精确关键词，BM25 精确匹配但不懂同义词。混合检索（hybrid search）把两者结果合并，取长补短，覆盖更全面的检索场景。
 
-```
-用户问题 → 检索 → 相关文档 → LLM 生成 → 最终答案
-```
+多路检索的结果如何合并？本项目使用 RRF（Reciprocal Rank Fusion，倒数排名融合）算法。RRF 不关心各检索器给出的原始分数（不同检索器分数量纲不同，不可直接相加），只看每条文档在各检索器中的排名：对排名为 r 的文档，贡献分数 `1 / (k + r)`（k 通常取 60），然后把它在所有检索器中的分数累加，最后按总分重新排序。排名越靠前、被越多检索器同时命中的文档，最终分数越高。
 
-**RAG 的优势**：
-- 提供最新信息（检索实时文档）
-- 覆盖私有知识（个人笔记、企业文档）
-- 减少幻觉（基于真实文档生成）
-- 可追溯（可以查看引用来源）
+RRF 的优点是简单、鲁棒、无需调参归一化，是工业界混合检索最常用的融合方法之一。
 
-## 快速开始
+## LangChain 表达式语言（LCEL）
 
-### 基础用法
-
-```python
-# 1. 加载文档
-from llama_index.core import SimpleDirectoryReader
-documents = SimpleDirectoryReader("data").load_data()
-
-# 2. 创建索引
-from llama_index.core import VectorStoreIndex
-index = VectorStoreIndex.from_documents(documents)
-
-# 3. 查询
-query_engine = index.as_query_engine()
-response = query_engine.query("你的问题")
-print(response)
-```
-
-### 进阶用法
-
-```python
-# 自定义 LLM
-from llama_index.llms.openai import OpenAI
-llm = OpenAI(model="gpt-4")
-query_engine = index.as_query_engine(llm=llm)
-
-# 自定义检索
-from llama_index.core.retrievers import VectorIndexRetriever
-retriever = VectorIndexRetriever(index, similarity_top_k=5)
-
-# 聊天历史
-from llama_index.core.memory import ChatMemoryBuffer
-memory = ChatMemoryBuffer(token_limit=1000)
-```
+LangChain 推荐用 LCEL（LangChain Expression Language）把组件拼装成链，用管道符 `|` 连接，例如 `retriever | prompt | llm | output_parser`。LCEL 链天然支持流式输出、异步、批处理和可观测性。本项目为了让混合检索和 RRF 融合逻辑清晰可见，手动实现了检索与拼接，没有使用完整的 LCEL 链；在生产实践中，可以用 LCEL 把官方 Retriever、PromptTemplate、ChatModel 和 StrOutputParser 组合成标准的 RAG 链。
 
 ## 应用场景
 
-### 1. 个人知识库
+1. **个人知识库问答**：把笔记、文章、文档变成可对话的知识库。
+2. **企业内部搜索**：基于私有文档构建企业问答系统，员工自助查询。
+3. **客服机器人**：基于产品手册、FAQ 生成准确回复，减少幻觉。
+4. **代码库助手**：基于代码和文档回答技术问题。
+5. **研究文献助手**：帮研究者快速从大量论文中检索并总结相关内容。
 
-将笔记、文章、文档变成可对话的知识库
+## 扩展方向
 
-### 2. 企业内部搜索
+1. **更多数据源**：接入 PDF、Word、网页、数据库等。
+2. **多文档管理**：支持多个知识库的检索与路由。
+3. **多轮对话**：引入聊天历史（memory），支持上下文连贯的问答。
+4. **重排序（Rerank）**：在检索后用交叉编码器对结果精排，提升 Top-K 质量。
+5. **Web UI 与 API**：用 Gradio/Streamlit 做界面，或用 FastAPI 部署成 REST 服务。
 
-构建私有文档问答系统
+## 参考资源
 
-### 3. 产品文档助手
-
-帮助用户快速查找产品使用信息
-
-### 4. 代码库助手
-
-基于代码文档的问答系统
-
-### 5. 客服机器人
-
-基于产品文档的智能客服
-
-## 与 LangChain 的关系
-
-LlamaIndex 和 LangChain 是互补关系：
-
-- **LlamaIndex**：专注数据处理和索引，更专业的索引和检索
-- **LangChain**：提供完整的 LLM 应用框架，包括代理、工具链等
-
-两者可以结合使用，发挥各自优势。
-
-## 总结
-
-LlamaIndex 为构建 LLM 应用提供了强大而灵活的工具：
-
-1. 简化数据接入：支持多种数据源
-2. 高效索引：多种索引类型满足不同需求
-3. 智能查询：强大的问答和对话能力
-4. 灵活定制：从简单到复杂都可实现
-
-官方网站：https://www.llamaindex.ai
-文档：https://docs.llamaindex.ai
+- LangChain 官方文档：https://python.langchain.com
+- LangChain RAG 教程：https://python.langchain.com/docs/tutorials/rag
+- LangChain GitHub：https://github.com/langchain-ai/langchain
+- Ollama 官网：https://ollama.com
+- FAISS 文档：https://faiss.ai

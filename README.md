@@ -13,10 +13,12 @@
 
 ## 🛠️ 技术栈
 
-- **LangChain**：LLM 应用框架
-- **Ollama**：本地 LLM 运行（deepseek-r1:1.5b）
+- **LangChain**：LLM 应用框架（核心组件 + LCEL）
+- **langchain-ollama**：Ollama 官方集成（ChatOllama / OllamaEmbeddings）
+- **Ollama**：本地 LLM 运行（deepseek-r1:1.5b、nomic-embed-text）
 - **FAISS**：向量数据库（稠密检索）
 - **BM25（rank-bm25）**：倒排索引（稀疏检索）
+- **jieba**：中文分词（让 BM25 在中文语料上真正生效）
 - **RRF 融合算法**：多路检索结果合并
 - **Python 3.11+**
 
@@ -25,7 +27,7 @@
 ```bash
 # 1. 克隆项目
 git clone <your-repo-url>
-cd llamaindex-tutorials
+cd langchain-rag-tutorial
 
 # 2. 同步依赖（推荐使用 uv）
 uv sync
@@ -62,10 +64,11 @@ python main.py
 
 `data/knowledge_base.txt` 包含以下主题：
 
-- RAG 系统简介与核心价值
-- LangChain 核心概念（Document、Embeddings、VectorStore、LLM）
-- RAG 原理与工作流程
-- 向量数据库与相似度检索
+- 什么是 RAG：定义、工作流程、解决的三大 LLM 痛点
+- LangChain 核心组件：Document / TextSplitters / Embeddings / VectorStore / LLM / Retriever
+- 稠密检索（FAISS）与稀疏检索（BM25）的原理与差异
+- 混合检索与 RRF 倒数排名融合算法
+- LCEL（LangChain 表达式语言）简介
 - 应用场景与扩展方向
 
 ## 📁 项目结构
@@ -100,7 +103,7 @@ langchain-rag-tutorial/
    → FAISS Top-5 + BM25 Top-5
    → RRF 倒数排名融合
        ↓
-5. 拼 Prompt + LLM 生成答案 (OllamaChat.invoke)
+5. 拼 Prompt + LLM 生成答案 (ChatOllama.invoke)
 ```
 
 ## 🚀 扩展方向
