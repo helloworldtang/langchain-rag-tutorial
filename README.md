@@ -159,6 +159,7 @@ langchain-rag-tutorial/
 3. **聊天历史**：支持多轮对话
 4. **Web UI**：用 Gradio 或 Streamlit 做网页界面
 5. **API 服务**：用 FastAPI 部署成 REST API
+6. **生产级混合检索**：本项目手写 RRF 便于讲清原理；落地时可直接用 LangChain 官方 [`EnsembleRetriever`](https://reference.langchain.com/python/langchain-classic/retrievers/ensemble/EnsembleRetriever)（langchain 1.x 位于 `langchain_classic` 包，内置 RRF 融合），组合 BM25 与向量检索器，省去自维护融合逻辑
 
 ## 📚 相关链接
 

@@ -184,10 +184,14 @@ def load_documents():
     )
     chunks = text_splitter.split_text(content)
 
+    # 给每个块分配稳定 chunk_id，供 RRF 跨检索器去重（见 _doc_key）。
+    clean_chunks = [c for c in chunks if c.strip()]
     documents = [
-        LCDocument(page_content=chunk, metadata={"source": "knowledge_base.txt"})
-        for chunk in chunks
-        if chunk.strip()
+        LCDocument(
+            page_content=chunk,
+            metadata={"source": "knowledge_base.txt", "chunk_id": idx},
+        )
+        for idx, chunk in enumerate(clean_chunks)
     ]
 
     print(f"   已加载 {len(documents)} 个文档块")
@@ -284,6 +288,17 @@ def build_index(documents, embed_model):
 
 # ============== 混合检索 ==============
 
+def _doc_key(doc: LCDocument):
+    """文档去重键：优先用稳定的 chunk_id，回退到 page_content。
+
+    不能用 id(doc)：稠密检索（FAISS 存的是副本）与稀疏检索（原始 documents 列表）
+    返回的是不同 Python 实例，对象 id 不同，会导致同一文档无法合并、破坏 RRF 融合。
+    用 chunk_id 既能跨检索器正确合并，又不受「两块内容巧合相同」的误合并影响。
+    """
+    cid = doc.metadata.get("chunk_id")
+    return cid if cid is not None else doc.page_content
+
+
 def reciprocal_rank_fusion(results: List[List[dict]], k: int = 60) -> List[dict]:
     """
     RRF（倒数排名融合）算法
@@ -306,7 +321,7 @@ def reciprocal_rank_fusion(results: List[List[dict]], k: int = 60) -> List[dict]
 
     for retriever_results in results:
         for rank, item in enumerate(retriever_results, start=1):
-            doc_key = item["doc"].page_content  # 用内容作为唯一 key
+            doc_key = _doc_key(item["doc"])
             if doc_key not in doc_scores:
                 doc_scores[doc_key] = {"doc": item["doc"], "rrf_score": 0}
             # 累加 RRF 分数

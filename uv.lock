@@ -794,15 +794,15 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "faiss-cpu" },
-    { name = "jieba" },
-    { name = "langchain" },
-    { name = "langchain-community" },
-    { name = "langchain-deepseek" },
-    { name = "langchain-ollama" },
-    { name = "langchain-text-splitters" },
-    { name = "python-dotenv" },
-    { name = "rank-bm25" },
+    { name = "faiss-cpu", specifier = ">=1.0" },
+    { name = "jieba", specifier = ">=0.42" },
+    { name = "langchain", specifier = ">=1.0,<2" },
+    { name = "langchain-community", specifier = ">=0.4,<1" },
+    { name = "langchain-deepseek", specifier = ">=1.0,<2" },
+    { name = "langchain-ollama", specifier = ">=1.0,<2" },
+    { name = "langchain-text-splitters", specifier = ">=1.0,<2" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "rank-bm25", specifier = ">=0.2" },
 ]
 
 [package.metadata.requires-dev]

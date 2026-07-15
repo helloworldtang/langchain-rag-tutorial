@@ -5,15 +5,17 @@ description = "LangChain RAG 教程 - 个人知识库问答"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "faiss-cpu",
-    "jieba",
-    "langchain",
-    "langchain-community",
-    "langchain-deepseek",
-    "langchain-ollama",
-    "langchain-text-splitters",
-    "python-dotenv",
-    "rank-bm25",
+    # langchain 1.x 是 API 分水岭（分包架构、ChatPromptTemplate 元组语法等），
+    # 故核心包锁定 >=1.0；加 <2 上限防止未来大版本破坏示例。
+    "faiss-cpu>=1.0",
+    "jieba>=0.42",
+    "langchain>=1.0,<2",
+    "langchain-community>=0.4,<1",
+    "langchain-deepseek>=1.0,<2",
+    "langchain-ollama>=1.0,<2",
+    "langchain-text-splitters>=1.0,<2",
+    "python-dotenv>=1.0",
+    "rank-bm25>=0.2",
 ]
 
 [dependency-groups]

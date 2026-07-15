@@ -211,6 +211,24 @@ class TestFunctionality:
         assert "上下文X" in msgs[1].content
         assert "问题Y" in msgs[1].content
 
+    def test_rrf_merges_by_chunk_id(self):
+        """两路返回的不同实例、若 chunk_id 相同应被识别为同一文档并合并分数"""
+        import main
+        from langchain_core.documents import Document
+        # 两个不同 Python 实例，但同一 chunk_id（模拟 FAISS 副本 vs 原始 documents）
+        d1 = Document(page_content="内容A", metadata={"chunk_id": 0})
+        d2 = Document(page_content="内容A", metadata={"chunk_id": 0})
+        other = Document(page_content="内容B", metadata={"chunk_id": 1})
+        assert main._doc_key(d1) == main._doc_key(d2) == 0
+        results = [
+            [{"doc": d1, "score": 1.0}, {"doc": other, "score": 0.5}],
+            [{"doc": d2, "score": 1.0}, {"doc": other, "score": 0.4}],
+        ]
+        fused = main.reciprocal_rank_fusion(results, k=60)
+        # chunk_id=0 在两路都排第1，累加两次 → Top-1；d1/d2 合并成 1 项
+        assert fused[0]["doc"].metadata["chunk_id"] == 0
+        assert len(fused) == 2
+
 
 class TestProviderSwitch:
     """测试 LLM provider 切换逻辑（全程离线，不联网、不真实调用 API）"""
