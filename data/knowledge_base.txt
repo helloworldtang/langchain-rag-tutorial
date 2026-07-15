@@ -26,7 +26,7 @@ Document 是 LangChain 中表示一段文本的标准对象，包含两个字段
 
 ### 2. Text Splitters（文本分割器）
 
-大模型的上下文窗口有限，整篇长文档无法直接用于检索。Text Splitters 把长文档切分成一个个较小的语义块（chunk）。本项目使用 `CharacterTextSplitter`，按分隔符（如空行 `\n\n`）切分，并通过 `chunk_size` 控制每块最大长度、`chunk_overlap` 控制相邻块之间的重叠（避免把完整句子从中间切断）。
+大模型的上下文窗口有限，整篇长文档无法直接用于检索。Text Splitters 把长文档切分成一个个较小的语义块（chunk）。本项目使用 `RecursiveCharacterTextSplitter`：它按一组分隔符列表（段落 `\n\n` → 换行 `\n` → 中文句末标点 `。！？；` → 逗号 `，` → 空格 → 单字）逐级递归切分，尽量在自然语义边界断开；用 `chunk_size` 控制每块最大长度、`chunk_overlap` 控制相邻块之间的重叠（避免把完整句子从中间切断）。相比只在单一分隔符（如 `\n\n`）处切的 `CharacterTextSplitter`，递归切分对没有空格分隔的中文更友好、块边界更自然，是 LangChain 官方推荐的通用切分器。
 
 ### 3. Embeddings（嵌入模型）
 

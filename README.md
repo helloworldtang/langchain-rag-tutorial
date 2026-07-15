@@ -127,7 +127,8 @@ langchain-rag-tutorial/
 │   └── knowledge_base.txt # 知识库文件
 ├── faiss_index/           # 持久化的向量索引（运行时生成）
 │   ├── index.faiss
-│   └── index.pkl
+│   ├── index.pkl
+│   └── index.meta.json    # 索引指纹（内容 hash 等，用于判断是否需要重建）
 └── tests/                 # 单元测试
     └── test_main.py
 ```
@@ -137,7 +138,7 @@ langchain-rag-tutorial/
 ```
 1. 加载文档 (load_documents)
        ↓
-2. 文本分割 (CharacterTextSplitter)
+2. 文本分割 (RecursiveCharacterTextSplitter)
        ↓
    ┌───────────────────────────────┐
    │  3a. 向量嵌入 → FAISS 稠密索引  │

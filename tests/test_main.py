@@ -72,8 +72,8 @@ class TestMainCode:
         assert Document is not None
 
     def test_import_text_splitter(self):
-        from langchain_text_splitters import CharacterTextSplitter
-        assert CharacterTextSplitter is not None
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        assert RecursiveCharacterTextSplitter is not None
 
     def test_model_config(self):
         with open("main.py", "r", encoding="utf-8") as f:
@@ -106,19 +106,11 @@ class TestFunctionality:
     """测试功能"""
 
     def test_document_loading(self):
-        from langchain_core.documents import Document
-        from langchain_text_splitters import CharacterTextSplitter
-
-        with open("data/knowledge_base.txt", "r", encoding="utf-8") as f:
-            content = f.read()
-
-        text_splitter = CharacterTextSplitter(
-            separator="\n\n", chunk_size=500, chunk_overlap=50
-        )
-        chunks = text_splitter.split_text(content)
-
-        assert len(chunks) > 0, "文档分割失败"
-        assert len(chunks[0]) > 0, "分割内容为空"
+        """load_documents 用 RecursiveCharacterTextSplitter 切出非空块"""
+        import main
+        documents = main.load_documents()
+        assert len(documents) > 0, "文档分割失败"
+        assert all(doc.page_content.strip() for doc in documents), "存在空内容块"
 
     def test_document_creation(self):
         from langchain_core.documents import Document
@@ -151,6 +143,17 @@ class TestFunctionality:
         assert out == "正式回答"
         # 无 think 标签时原样返回
         assert main.clean_response("普通回答") == "普通回答"
+
+    def test_clean_response_unclosed_think(self):
+        """未闭合的 <think> 标签应被剥掉，不泄漏进答案"""
+        import main
+        # 成对：删除推理，保留答案
+        assert main.clean_response("<think>推理</think>答案") == "答案"
+        # 未闭合：剥掉标签，不残留 <think>
+        out = main.clean_response("答案<think>未闭合推理")
+        assert "<think>" not in out
+        assert "</think>" not in out
+        assert "答案" in out
 
     def test_rrf_fusion(self):
         """测试 RRF 融合算法"""
@@ -196,6 +199,17 @@ class TestFunctionality:
 
         # A 在两路都排第1，分数累加两次，应大于只排第1一次的分数
         assert score_a > score_b, "A 的 RRF 分数应大于 B"
+
+    def test_rag_prompt_formats(self):
+        """RAG_PROMPT 用 ChatPromptTemplate 渲染出 system + human 消息"""
+        import main
+        messages = main.RAG_PROMPT.invoke({"context": "上下文X", "question": "问题Y"})
+        msgs = messages.to_messages()
+        assert len(msgs) == 2
+        assert msgs[0].type == "system"
+        assert msgs[1].type == "human"
+        assert "上下文X" in msgs[1].content
+        assert "问题Y" in msgs[1].content
 
 
 class TestProviderSwitch:
@@ -270,6 +284,88 @@ class TestProviderSwitch:
             content = f.read()
         assert "from dotenv import load_dotenv" in content
         assert "load_dotenv(" in content
+
+
+class _FakeEmbeddings:
+    """假 Embedding：按文本长度生成定维向量，避免测试时调用 Ollama。"""
+
+    def __init__(self, dim=16):
+        self.dim = dim
+
+    def embed_documents(self, texts):
+        return [self._vec(t) for t in texts]
+
+    def embed_query(self, text):
+        return self._vec(text)
+
+    def _vec(self, text):
+        return [((len(text) + i) % self.dim) / self.dim for i in range(self.dim)]
+
+
+class TestIndexIntegrity:
+    """测试索引内容指纹校验（修复：改了知识库会触发 FAISS 重建，不再用旧索引）"""
+
+    def _setup(self, monkeypatch, tmp_path):
+        """把索引目录与知识库路径重定向到临时目录，隔离真实 faiss_index/"""
+        import main
+        idx_dir = tmp_path / "idx"
+        kb = tmp_path / "knowledge_base.txt"
+        monkeypatch.setattr(main, "INDEX_DIR", str(idx_dir))
+        monkeypatch.setattr(main, "INDEX_META_FILE", str(idx_dir / "index.meta.json"))
+        monkeypatch.setattr(main, "DATA_FILE", kb)
+        return main, idx_dir, kb
+
+    def test_doc_signature_changes_with_content(self, tmp_path, monkeypatch):
+        main, _, kb = self._setup(monkeypatch, tmp_path)
+        kb.write_text("原文内容一", encoding="utf-8")
+        sig1 = main._doc_signature()
+        kb.write_text("原文内容一已被修改", encoding="utf-8")
+        sig2 = main._doc_signature()
+        assert sig1 != sig2, "内容变化后指纹应不同"
+
+    def test_doc_signature_stable_when_unchanged(self, tmp_path, monkeypatch):
+        main, _, kb = self._setup(monkeypatch, tmp_path)
+        kb.write_text("稳定内容", encoding="utf-8")
+        assert main._doc_signature() == main._doc_signature()
+
+    def test_build_index_rebuilds_when_content_changes(self, tmp_path, monkeypatch, capsys):
+        """改了知识库内容后，再次 build_index 应走重建分支"""
+        main, _, kb = self._setup(monkeypatch, tmp_path)
+        emb = _FakeEmbeddings()
+
+        kb.write_text("段落一内容。\n\n段落二内容。\n\n段落三内容。", encoding="utf-8")
+        main.build_index(main.load_documents(), emb)
+        capsys.readouterr()  # 清空首次构建的输出
+
+        kb.write_text(
+            "段落一内容。\n\n段落二内容。\n\n段落三内容。\n\n段落四内容。\n\n段落五内容。",
+            encoding="utf-8",
+        )
+        main.build_index(main.load_documents(), emb)
+        out = capsys.readouterr().out
+        assert "重建" in out, "内容变化后应提示重建索引"
+
+    def test_build_index_reuses_when_unchanged(self, tmp_path, monkeypatch, capsys):
+        """内容不变时再次 build_index 应复用已有索引（走加载分支）"""
+        main, _, kb = self._setup(monkeypatch, tmp_path)
+        emb = _FakeEmbeddings()
+        kb.write_text("段落一内容。\n\n段落二内容。\n\n段落三内容。", encoding="utf-8")
+        main.build_index(main.load_documents(), emb)  # 首次构建
+        capsys.readouterr()
+
+        main.build_index(main.load_documents(), emb)  # 指纹一致
+        out = capsys.readouterr().out
+        assert "加载" in out, "内容不变应复用已有索引"
+
+    def test_bm25_not_persisted(self, tmp_path, monkeypatch):
+        """BM25 不再落盘 pickle 文件（小语料每次重建）"""
+        main, idx_dir, kb = self._setup(monkeypatch, tmp_path)
+        kb.write_text("段落一内容。\n\n段落二内容。", encoding="utf-8")
+        result = main.build_bm25_index(main.load_documents())
+        assert result is not None, "rank-bm25 已安装时应返回索引"
+        bm25, doc_texts = result
+        assert len(doc_texts) == len(main.load_documents())
+        assert not (idx_dir / "bm25_index.pkl").exists(), "BM25 不应再持久化"
 
 
 if __name__ == "__main__":

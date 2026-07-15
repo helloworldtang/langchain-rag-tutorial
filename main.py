@@ -26,8 +26,9 @@ LangChain RAG 示例：个人知识库问答（BM25 + FAISS 混合检索）
 ======================================================
 """
 
+import hashlib
+import json
 import os
-import pickle
 import re
 from pathlib import Path
 from typing import List
@@ -35,8 +36,9 @@ from typing import List
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document as LCDocument
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_text_splitters import CharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # 尽早加载 .env（必须先于下方使用 os.getenv 的配置区）
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -73,9 +75,22 @@ OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "deepseek-r1:1.5b")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
 # Embedding：两种 provider 下都用本地 Ollama（DeepSeek 不提供 Embedding API）
-EMBED_MODEL = "nomic-embed-text"
-INDEX_DIR = "./faiss_index"
-BM25_PKL = "./faiss_index/bm25_index.pkl"
+EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+
+# 知识库源文件（提为常量，便于复用与测试 monkeypatch）
+BASE_DIR = Path(__file__).resolve().parent
+DATA_FILE = BASE_DIR / "data" / "knowledge_base.txt"
+
+# 索引目录与元数据文件（FAISS 旁路存放一份内容指纹，用于判断是否需要重建）
+INDEX_DIR = str(BASE_DIR / "faiss_index")
+INDEX_META_FILE = os.path.join(INDEX_DIR, "index.meta.json")
+
+# 文本切分参数
+# 中文信息密度高，300 字符/块比默认 500 更合适；分隔符按「段落→行→中文句末标点→逗号→字」逐级递归，
+# 尽量在自然语义边界切分，避免把句子从中间切断。
+CHUNK_SIZE = 300
+CHUNK_OVERLAP = 50
+CHINESE_SEPARATORS = ["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""]
 
 # 检索参数
 RETRIEVE_K = 5   # 每个检索器取多少条
@@ -153,14 +168,19 @@ def init_embedding():
 # ============== 文档加载 ==============
 
 def load_documents():
-    """加载知识库文档"""
+    """加载知识库文档，按中文友好的分隔符递归切分成语义块。"""
     print("📚 加载知识库文档...")
 
-    with open("./data/knowledge_base.txt", "r", encoding="utf-8") as f:
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
         content = f.read()
 
-    text_splitter = CharacterTextSplitter(
-        separator="\n\n", chunk_size=500, chunk_overlap=50
+    # RecursiveCharacterTextSplitter 会按 separators 列表逐级尝试切分：
+    # 优先在段落（\n\n）边界切，块仍超长再退到行、再到中文句末标点（。！？；），
+    # 尽量保留完整句子，对中文语料比单分隔符的 CharacterTextSplitter 友好得多。
+    text_splitter = RecursiveCharacterTextSplitter(
+        separators=CHINESE_SEPARATORS,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
     )
     chunks = text_splitter.split_text(content)
 
@@ -174,51 +194,90 @@ def load_documents():
     return documents
 
 
+# ============== 索引指纹 ==============
+
+def _doc_signature() -> dict:
+    """
+    计算当前知识库的「指纹」：源文档内容 hash + 切分配置 + embedding 模型。
+
+    只要其中任一发生变化（改了知识库正文、调整 chunk_size、换了 embedding 模型），
+    指纹就会不同，从而触发 FAISS 索引重建——避免「改了知识库却仍检索旧索引」的隐患。
+    """
+    content = Path(DATA_FILE).read_text(encoding="utf-8")
+    return {
+        "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "chunk_config": {"chunk_size": CHUNK_SIZE, "chunk_overlap": CHUNK_OVERLAP},
+        "embed_model": EMBED_MODEL,
+    }
+
+
+def _load_index_meta() -> dict | None:
+    """读取已持久化的索引指纹；不存在或损坏时返回 None。"""
+    if not os.path.exists(INDEX_META_FILE):
+        return None
+    try:
+        with open(INDEX_META_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _save_index_meta(meta: dict) -> None:
+    """写入索引指纹。"""
+    os.makedirs(INDEX_DIR, exist_ok=True)
+    with open(INDEX_META_FILE, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+
 # ============== 索引构建 ==============
 
 def build_bm25_index(documents: List[LCDocument]):
-    """构建 BM25 倒排索引"""
+    """
+    构建 BM25 倒排索引（每次启动重建，不做持久化）。
+
+    BM25 在小语料上构建是纯 CPU、毫秒级操作，无需像 FAISS 那样持久化——
+    持久化反而会带来 pickle 反序列化的脆弱性（依赖版本变动后可能加载失败）
+    与内容不同步风险。每次重建更简单、更可靠。
+    """
     if not BM25_AVAILABLE:
         return None
-
-    # 读取持久化索引（如果存在）
-    if os.path.exists(BM25_PKL):
-        print("📦 检测到已有 BM25 索引，加载中...")
-        with open(BM25_PKL, "rb") as f:
-            bm25_data = pickle.load(f)
-        bm25 = bm25_data["bm25"]
-        doc_texts = bm25_data["doc_texts"]
-        return bm25, doc_texts
 
     print("🔍 构建 BM25 索引...")
     doc_texts = [doc.page_content for doc in documents]
     # 中文用 jieba/字符分词，英文同样适用
     tokenized_corpus = [tokenize(doc) for doc in doc_texts]
     bm25 = BM25Okapi(tokenized_corpus)
-
-    # 持久化
-    os.makedirs(INDEX_DIR, exist_ok=True)
-    with open(BM25_PKL, "wb") as f:
-        pickle.dump({"bm25": bm25, "doc_texts": doc_texts}, f)
-    print("   BM25 索引创建完成！")
+    print("   BM25 索引构建完成！")
     return bm25, doc_texts
 
 
 def build_index(documents, embed_model):
-    """构建或加载 FAISS 向量索引"""
-    if os.path.exists(INDEX_DIR) and os.path.exists(
-        os.path.join(INDEX_DIR, "index.faiss")
-    ):
-        print("📦 检测到已有 FAISS 索引，加载中...")
-        vectorstore = FAISS.load_local(
+    """
+    构建或加载 FAISS 向量索引。
+
+    与「仅判断文件是否存在」不同，这里额外校验索引指纹是否匹配当前知识库：
+    - 索引存在且指纹一致 → 直接加载（embedding 计算耗时，复用索引能省时间）
+    - 索引不存在，或知识库/切分配置/embedding 模型已变更 → 重建
+    """
+    sig = _doc_signature()
+    faiss_ok = os.path.exists(os.path.join(INDEX_DIR, "index.faiss"))
+    meta_ok = _load_index_meta() == sig
+
+    if faiss_ok and meta_ok:
+        print("📦 检测到有效 FAISS 索引（指纹匹配），加载中...")
+        return FAISS.load_local(
             INDEX_DIR, embed_model, allow_dangerous_deserialization=True
         )
-        return vectorstore
 
-    print("🔍 构建 FAISS 向量索引...")
+    if faiss_ok:
+        print("♻️ 知识库或切分配置已变更，重建 FAISS 索引...")
+    else:
+        print("🔍 构建 FAISS 向量索引...")
+
     vectorstore = FAISS.from_documents(documents=documents, embedding=embed_model)
     print("💾 保存 FAISS 索引到本地...")
     vectorstore.save_local(INDEX_DIR)
+    _save_index_meta(sig)
     print("   FAISS 索引创建完成！")
     return vectorstore
 
@@ -328,13 +387,27 @@ def hybrid_search(vectorstore, bm25, doc_texts, documents, query: str) -> List[L
 
 # ============== 问答 ==============
 
+# RAG 问答 Prompt 模板：system 约束"仅基于上下文回答"，human 放上下文与问题。
+# 用 ChatPromptTemplate 而非裸字符串，规范 system/human 角色，便于复用与切换模型。
+RAG_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", "你是一个严谨的问答助手。请只基于下面提供的上下文回答问题；"
+               "如果上下文中没有相关内容，请如实说明，不要编造。"),
+    ("human", "上下文：\n{context}\n\n问题：{question}"),
+])
+
+
 def clean_response(text: str) -> str:
     """
     清理本地 deepseek-r1 的输出：去掉 <think>...</think> 推理过程，只保留正式回答。
     在线 DeepSeek（deepseek-chat / deepseek-reasoner）的 .content 本身就是干净答案，
     此函数对在线模型是无害的 no-op（匹配不到 <think> 时原样返回）。
     """
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # 1. 去掉成对的 <think>...</think> 推理过程（本地 deepseek-r1）
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    # 2. 兜底：偶发的未闭合 <think>——剥掉残留的标签本身，避免泄漏进答案；
+    #    不做激进截断，防止误删可能存在的正式答案。
+    cleaned = cleaned.replace("<think>", "").replace("</think>", "")
+    cleaned = cleaned.strip()
     return cleaned or text
 
 
@@ -348,24 +421,16 @@ def answer_question(question: str, vectorstore, bm25, doc_texts, documents, llm)
     # 构建上下文
     context = "\n\n".join([doc.page_content for doc in docs])
 
-    # 构建 Prompt
-    prompt = f"""基于以下上下文回答问题。如果无法从上下文找到答案，请如实说明。
-
-上下文:
-{context}
-
-问题: {question}
-
-回答:"""
-
     print(f"\n❓ 问题: {question}")
     print(f"📖 参考 {len(docs)} 个文档片段：")
     for i, doc in enumerate(docs, 1):
         preview = doc.page_content[:60].replace("\n", " ")
         print(f"   [{i}] {preview}...")
 
-    # LLM.invoke 返回 AIMessage（本地 ChatOllama 与在线 ChatDeepSeek 均适用），取 .content 得到字符串
-    response = llm.invoke(prompt)
+    # 用 ChatPromptTemplate 渲染 system + human 消息（规范的 prompt，便于复用与切换模型）
+    messages = RAG_PROMPT.invoke({"context": context, "question": question})
+    # LLM.invoke 接收消息，返回 AIMessage（本地 ChatOllama 与在线 ChatDeepSeek 均适用），取 .content 得到字符串
+    response = llm.invoke(messages)
     # 在线 deepseek-reasoner 会把推理放进 additional_kwargs["reasoning_content"]，可选展示
     reasoning = response.additional_kwargs.get("reasoning_content") if response.additional_kwargs else None
     if reasoning:
@@ -390,7 +455,7 @@ def main():
     # 构建或加载 FAISS 索引
     vectorstore = build_index(documents, embed_model)
 
-    # 构建或加载 BM25 索引
+    # 构建 BM25 索引（每次重建，无需持久化）
     bm25_data = build_bm25_index(documents)
     bm25 = bm25_data[0] if bm25_data else None
     bm25_doc_texts = bm25_data[1] if bm25_data else []
